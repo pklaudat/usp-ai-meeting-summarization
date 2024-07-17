@@ -1,0 +1,7 @@
+name: usp-meeting-summz
+runtime: dotnet
+description: USP Meeting Summarizer app hosted on Azure Cloud
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: azure-csharp

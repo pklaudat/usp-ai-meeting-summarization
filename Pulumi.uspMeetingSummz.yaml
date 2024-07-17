@@ -1,0 +1,4 @@
+config:
+  azure-native:location: WestUS2
+  location: wus2
+  env: prod
