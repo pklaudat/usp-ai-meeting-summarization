@@ -1,5 +1,6 @@
 using System;
 using Pulumi;
+using System.Collections.Generic;
 using Pulumi.AzureNative.Resources;
 using Pulumi.AzureNative.Web;
 using Pulumi.AzureNative.Web.Inputs;
@@ -24,19 +25,30 @@ namespace UspMeetingSummz {
             this._location = location;
             this._env = env;
 
-
             CreateServerlessFunction(this._functionName);
         }
 
         private void OauthAccessToStorage(WebApp function, Output<string> storageAccountId)
         {
-            var roleAssignment = new RoleAssignment($"role-assignment-{Guid.NewGuid()}", new RoleAssignmentArgs
+            var builtinRolesIds = new List<string>
             {
-                PrincipalId = function.Identity.Apply(identity => identity.PrincipalId),
-                RoleDefinitionId = $"/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-                Scope = storageAccountId,
-                PrincipalType = "ServicePrincipal"
-            });
+                "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
+                "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
+                "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
+
+            };
+
+            foreach (var roleId in builtinRolesIds) 
+            {
+                var roleAssignment = new RoleAssignment($"{_functionName}-{roleId}", new RoleAssignmentArgs
+                {
+                    PrincipalId = function.Identity.Apply(identity => identity.PrincipalId),
+                    RoleDefinitionId = $"/providers/Microsoft.Authorization/roleDefinitions/{roleId}",
+                    Scope = storageAccountId,
+                    PrincipalType = "ServicePrincipal"
+                });
+            }
+
         }
 
         public void CreateServerlessFunction(string functionName)
@@ -50,19 +62,19 @@ namespace UspMeetingSummz {
                     Tier = "Dynamic",
                     Name = "Y1"
                 },
-                Kind = "Linux",
-                Reserved = true
+                Kind = "Windows",
+                Reserved = false
             });
 
             var storage = new Storage(functionName.Split("-")[1], _location, _env, _resourceGroup);
             
-            // storage.CreateBlobContainer(functionName);
+            // var containerAssetUrl = storage.CreateBlobContainer($"{functionName.Split("-")[1]}-content");
 
             var function = new WebApp(functionName, new WebAppArgs
             {
                 Name = functionName,
                 ResourceGroupName = _resourceGroup.Name,
-                Reserved = true,
+                Reserved = false,
                 Kind = "FunctionApp",
                 Identity = new ManagedServiceIdentityArgs
                 {
@@ -72,14 +84,37 @@ namespace UspMeetingSummz {
                 ServerFarmId = hostingPlan.Id,
                 SiteConfig = new SiteConfigArgs
                 {
+                    Cors = new CorsSettingsArgs
+                    {
+                        AllowedOrigins = new[]
+                        {
+                            "https://portal.azure.com",
+                        },
+                        SupportCredentials = false,
+                    },
                     AppSettings = new[]
                     {
+                       new NameValuePairArgs
+                        {
+                            Name = "AzureWebJobsStorage__accountName",
+                            Value = storage.GetAccountName()
+                        },
                         new NameValuePairArgs
                         {
-                            Name = "AzureWebJobsStorage",
-                            Value = Output.Tuple(_resourceGroup.Name, storage.GetAccountName()).Apply(names =>
-                                $"DefaultEndpointsProtocol=https;AccountName={names.Item2};EndpointSuffix=core.windows.net")
+                            Name = "AzureWebJobsStorage__blobServiceUri",
+                            Value = storage.GetBlobEndpoint() 
                         },
+                        new NameValuePairArgs
+                        {
+                            Name = "AzureWebJobsStorage__queueServiceUri",
+                            Value = storage.GetQueueEndpoint() 
+                        },
+                        new NameValuePairArgs
+                        {
+                            Name = "AzureWebJobsStorage__tableServiceUri",
+                            Value = storage.GetTableEndpoint() 
+                        },
+
                         new NameValuePairArgs
                         {
                             Name = "FUNCTIONS_EXTENSION_VERSION",
@@ -89,6 +124,11 @@ namespace UspMeetingSummz {
                         {
                             Name = "WEBSITE_RUN_FROM_PACKAGE",
                             Value = "1"
+                        },
+                        new NameValuePairArgs
+                        {
+                            Name = "FUNCTIONS_WORKER_RUNTIME",
+                            Value = "dotnet"
                         }
                     }
                 }
