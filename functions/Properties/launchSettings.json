@@ -1,8 +1,8 @@
 {
   "profiles": {
-    "app": {
+    "functions": {
       "commandName": "Project",
-      "commandLineArgs": "--port 7196",
+      "commandLineArgs": "--port 7127",
       "launchBrowser": false
     }
   }

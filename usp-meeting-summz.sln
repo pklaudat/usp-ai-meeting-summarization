@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.002.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "app", "app\app.csproj", "{2C1C35ED-FF8A-439E-9245-9A172674B05B}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "usp-meeting-summz", "infrastructure\usp-meeting-summz.csproj", "{D6365019-50EA-4D55-BC0B-D3449D1B17AD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2C1C35ED-FF8A-439E-9245-9A172674B05B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C1C35ED-FF8A-439E-9245-9A172674B05B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C1C35ED-FF8A-439E-9245-9A172674B05B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C1C35ED-FF8A-439E-9245-9A172674B05B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6365019-50EA-4D55-BC0B-D3449D1B17AD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6365019-50EA-4D55-BC0B-D3449D1B17AD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6365019-50EA-4D55-BC0B-D3449D1B17AD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6365019-50EA-4D55-BC0B-D3449D1B17AD}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A17B19E9-8F78-4A4F-9154-BBF9909BC949}
+	EndGlobalSection
+EndGlobal

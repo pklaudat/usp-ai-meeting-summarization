@@ -6,6 +6,7 @@ using Pulumi.AzureNative.Web;
 using Pulumi.AzureNative.Web.Inputs;
 using Pulumi.AzureNative.Authorization;
 using ManagedServiceIdentityType = Pulumi.AzureNative.Web.ManagedServiceIdentityType;
+using System.Linq;
 
 
 namespace UspMeetingSummz {
@@ -17,7 +18,7 @@ namespace UspMeetingSummz {
         private readonly string _location;
         private readonly string _env;
 
-        public Function(string name, string location, string env, ResourceGroup resourceGroup, string planName = "meet_summz")
+        public Function(string name, string location, string env, ResourceGroup resourceGroup, string planName = "meet_summz", List<NameValuePairArgs> appEnvironmentVariables = null)
         {
             this._resourceGroup = resourceGroup;
             this._hostingPlanName = $"asp-{planName}-{location}-{env}";
@@ -25,7 +26,8 @@ namespace UspMeetingSummz {
             this._location = location;
             this._env = env;
 
-            CreateServerlessFunction(this._functionName);
+            appEnvironmentVariables = appEnvironmentVariables ?? new List<NameValuePairArgs>(); 
+            CreateServerlessFunction(this._functionName, appEnvironmentVariables);
         }
 
         private void OauthAccessToStorage(WebApp function, Output<string> storageAccountId)
@@ -51,7 +53,7 @@ namespace UspMeetingSummz {
 
         }
 
-        public void CreateServerlessFunction(string functionName)
+        public void CreateServerlessFunction(string functionName, List<NameValuePairArgs> appEnvironmentVariables)
         {
             var hostingPlan = new AppServicePlan(_hostingPlanName, new AppServicePlanArgs
             {
@@ -92,8 +94,8 @@ namespace UspMeetingSummz {
                         },
                         SupportCredentials = false,
                     },
-                    AppSettings = new[]
-                    {
+                    AppSettings = appEnvironmentVariables.Concat(
+                    [
                        new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__accountName",
@@ -130,7 +132,7 @@ namespace UspMeetingSummz {
                             Name = "FUNCTIONS_WORKER_RUNTIME",
                             Value = "dotnet"
                         }
-                    }
+                    ]).ToList()
                 }
             });
 
