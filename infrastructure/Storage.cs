@@ -25,6 +25,7 @@ namespace UspMeetingSummz
                 AllowSharedKeyAccess = false,
                 AccessTier = AccessTier.Hot,
                 Kind = Kind.StorageV2,
+                MinimumTlsVersion = "TLS1_2",
                 Sku = new Pulumi.AzureNative.Storage.Inputs.SkuArgs
                 {
                     Name = "Standard_LRS"
@@ -55,29 +56,29 @@ namespace UspMeetingSummz
 
         public Output<string> GetAccountName() => _storageAccount.Name;
 
-        // public Output<string> CreateBlobContainer(Storage storageAccount, string filePath = "")
-        // {
-        //     var container = new BlobContainer($"{name}", new BlobContainerArgs
-        //     {
-        //         AccountName = storageAccount.Name,
-        //         ResourceGroupName = _resourceGroup.Name,
-        //         PublicAccess = PublicAccess.None,
-        //     });
+        public Output<string> CreateBlobContainer(string blobName, StorageAccount storageAccount, string filePath = "")
+        {
+            var container = new BlobContainer($"{blobName}", new BlobContainerArgs
+            {
+                AccountName = storageAccount.Name,
+                ResourceGroupName = _resourceGroup.Name,
+                PublicAccess = PublicAccess.None,
+            });
 
-        //     if (!string.IsNullOrEmpty(filePath))
-        //     {
-        //         var blob = new Blob("zip", new BlobArgs
-        //         {
-        //             AccountName = storageAccount.Name,
-        //             ContainerName = container.Name,
-        //             ResourceGroupName = _resourceGroup.Name,
-        //             Type = BlobType.Block,
-        //             Source = new FileArchive(filePath)
-        //         });
-        //     }
+            if (!string.IsNullOrEmpty(filePath))
+            {
+                var blob = new Blob("zip", new BlobArgs
+                {
+                    AccountName = storageAccount.Name,
+                    ContainerName = container.Name,
+                    ResourceGroupName = _resourceGroup.Name,
+                    Type = BlobType.Block,
+                    Source = new FileArchive(filePath)
+                });
+            }
 
-        //     return Output.Format($"https://{storageAccount.Name}.blob.core.windows.net/{container.Name}");
-        // }
+            return Output.Format($"https://{storageAccount.Name}.blob.core.windows.net/{container.Name}");
+        }
 
         public Output<string> GetStorageAccountId() => _storageAccount.Id;
     }
