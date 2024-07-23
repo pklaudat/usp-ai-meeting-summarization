@@ -1,7 +1,7 @@
 name: MeetAI-pipeline
 
 variables:
-  pulumiStack: 'pklaudat/usp-meet-summz/prod'
+  pulumiStack: 'pklaudat/usp-meeting-summz/prod'
   infraPath: 'infrastructure'
 
 pool:
