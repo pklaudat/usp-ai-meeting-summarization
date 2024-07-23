@@ -3,6 +3,9 @@ name: MeetAI-pipeline
 variables:
   pulumiStack: 'pklaudat/usp-meet-summz/prod'
   infraPath: 'infrastructure'
+  
+pool:
+  name: 'self-hosted-agentpool'
 
 jobs:
 - job: infrastructure
