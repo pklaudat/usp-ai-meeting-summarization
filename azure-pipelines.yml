@@ -3,43 +3,40 @@ name: MeetAI-pipeline
 variables:
   pulumiStack: 'pklaudat/usp-meet-summz/prod'
   infraPath: 'infrastructure'
-  
+
 pool:
-  name: 'az-devops-agent'
+  name: 'self-hosted-agentpool'
 
-jobs:
-- job: infrastructure
-  pool:
-    vmImage: 'ubuntu-20.04'
-  steps:
-  - task: DotNetCoreCLI@2
-    displayName: 'Restore NuGet Packages'
-    inputs:
-      command: 'restore'
-      projects: $(infraPath)
-      feedsToUse: 'select'
-  - task: DotNetCoreCLI@2
-    displayName: 'Build Infrastructure Code'
-    inputs:
-      command: 'build'
-      projects: $(infraPath)
+steps:
+- task: DotNetCoreCLI@2
+  displayName: 'Restore NuGet Packages'
+  inputs:
+    command: 'restore'
+    projects: $(infraPath)
+    feedsToUse: 'select'
 
-  - task: Pulumi@1
-    displayName: 'Pulumi Preview'
-    condition: and(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/main'))
-    inputs:
-      azureSubscription: $(az-id)
-      command: 'preview'
-      cwd: $(infraPath)
-      stack: $(pulumiStack)
+- task: DotNetCoreCLI@2
+  displayName: 'Build Infrastructure Code'
+  inputs:
+    command: 'build'
+    projects: $(infraPath)
 
-  - task: Pulumi@1
-    displayName: 'Pulumi Deploy'
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    inputs:
-      azureSubscription: $(az-id)
-      command: 'up'
-      cwd: $(infraPath)
-      stack: $(pulumiStack)
-      args: '--yes'
-    name: 'pulumi'
+- task: Pulumi@1
+  displayName: 'Pulumi Preview'
+  condition: and(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/main'))
+  inputs:
+    azureSubscription: $(az-id)
+    command: 'preview'
+    cwd: $(infraPath)
+    stack: $(pulumiStack)
+
+- task: Pulumi@1
+  displayName: 'Pulumi Deploy'
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  inputs:
+    azureSubscription: $(az-id)
+    command: 'up'
+    cwd: $(infraPath)
+    stack: $(pulumiStack)
+    args: '--yes'
+  name: 'pulumi'
