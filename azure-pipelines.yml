@@ -3,7 +3,6 @@ name: MeetAI-pipeline
 variables:
   pulumiStack: 'pklaudat/usp-meet-summz/prod'
   infraPath: 'infrastructure'
-  azureSubscription: '${AZURE_SUBSCRIPTION}'
 
 jobs:
 - job: infrastructure
@@ -26,7 +25,7 @@ jobs:
     displayName: 'Pulumi Preview'
     condition: and(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/main'))
     inputs:
-      azureSubscription: $(azureSubscription)
+      azureSubscription: AZURE_SUBSCRIPTION
       command: 'preview'
       cwd: $(infraPath)
       stack: $(pulumiStack)
@@ -35,7 +34,7 @@ jobs:
     displayName: 'Pulumi Deploy'
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     inputs:
-      azureSubscription: $(azureSubscription)
+      azureSubscription: $AZURE_SUBSCRIPTION
       command: 'up'
       cwd: $(infraPath)
       stack: $(pulumiStack)
