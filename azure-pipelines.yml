@@ -5,7 +5,7 @@ variables:
   infraPath: 'infrastructure'
   
 pool:
-  name: 'self-hosted-agentpool'
+  name: 'az-devops-agent'
 
 jobs:
 - job: infrastructure
