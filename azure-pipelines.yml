@@ -45,7 +45,7 @@ steps:
 
 - powershell: |
     $functionAppName = pulumi stack output FunctionName
-    Write-Output "Function App Name: $functionAppName"
+    Write-Output "##vso[task.setvariable variable=functionAppName]$functionAppName"
   displayName: 'Retrieve function name using Pulumi deployment'
   continueOnError: false
   workingDirectory: $(infraPath)
@@ -72,7 +72,7 @@ steps:
 
 - powershell: |
     Write-Output "Deploying Azure Functions..."
-    func azure functionapp publish $functionAppName --overwrite
+    func azure functionapp publish $env:functionAppName --overwrite --dotnet-isolated
   displayName: 'Deploy Azure Functions Code'
   continueOnError: false
   workingDirectory: $(appPath)
