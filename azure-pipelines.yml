@@ -72,7 +72,7 @@ steps:
 
 - powershell: |
     Write-Output "Deploying Azure Functions..."
-    func azure functionapp publish $env:functionAppName --overwrite
+    func azure functionapp publish $functionAppName --overwrite
   displayName: 'Deploy Azure Functions Code'
   continueOnError: false
   workingDirectory: $(appPath)
