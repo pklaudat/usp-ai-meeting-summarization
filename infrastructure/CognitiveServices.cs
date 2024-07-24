@@ -47,6 +47,10 @@ namespace UspMeetingSummz {
                 {
                     Name = sku
                 }
+            },
+            new CustomResourceOptions
+            {
+                DependsOn = { _resourceGroup }
             });
         }
 

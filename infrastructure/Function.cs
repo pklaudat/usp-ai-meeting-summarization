@@ -67,6 +67,10 @@ namespace UspMeetingSummz {
                 },
                 Kind = "Windows",
                 Reserved = false
+            },
+            new CustomResourceOptions
+            {
+                DependsOn = { _resourceGroup }
             });
 
             var storage = new Storage(functionName.Split("-")[1], _location, _env, _resourceGroup);
