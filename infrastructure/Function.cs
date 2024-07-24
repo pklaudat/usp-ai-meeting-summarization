@@ -8,8 +8,8 @@ using Pulumi.AzureNative.Authorization;
 using ManagedServiceIdentityType = Pulumi.AzureNative.Web.ManagedServiceIdentityType;
 using System.Linq;
 
-
-namespace UspMeetingSummz {
+namespace UspMeetingSummz
+{
     class Function
     {
         private string _hostingPlanName;
@@ -17,6 +17,8 @@ namespace UspMeetingSummz {
         private string _functionName;
         private readonly string _location;
         private readonly string _env;
+
+        public Output<string> FunctionName { get; private set; }
 
         public Function(string name, string location, string env, ResourceGroup resourceGroup, string planName = "meet_summz", List<NameValuePairArgs> appEnvironmentVariables = null)
         {
@@ -28,6 +30,7 @@ namespace UspMeetingSummz {
 
             appEnvironmentVariables = appEnvironmentVariables ?? new List<NameValuePairArgs>(); 
             CreateServerlessFunction(this._functionName, appEnvironmentVariables);
+            FunctionName = Output.Create(this._functionName);
         }
 
         private void OauthAccessToStorage(WebApp function, Output<string> storageAccountId)
@@ -41,7 +44,7 @@ namespace UspMeetingSummz {
                 "69566ab7-960f-475b-8e7c-b3118f30c6bd"
             };
 
-            foreach (var roleId in builtinRolesIds) 
+            foreach (var roleId in builtinRolesIds)
             {
                 var roleAssignment = new RoleAssignment($"{_functionName}-{roleId}", new RoleAssignmentArgs
                 {
@@ -75,8 +78,6 @@ namespace UspMeetingSummz {
 
             var storage = new Storage(functionName.Split("-")[1], _location, _env, _resourceGroup);
             
-            // var containerAssetUrl = storage.CreateBlobContainer($"{functionName.Split("-")[1]}-content");
-
             var function = new WebApp(functionName, new WebAppArgs
             {
                 Name = functionName,
@@ -88,7 +89,7 @@ namespace UspMeetingSummz {
                     Type = ManagedServiceIdentityType.SystemAssigned
                 },
                 HttpsOnly = true,
-                ServerFarmId = hostingPlan.Id, 
+                ServerFarmId = hostingPlan.Id,
                 SiteConfig = new SiteConfigArgs
                 {
                     NetFrameworkVersion = "v8.0",
@@ -101,7 +102,8 @@ namespace UspMeetingSummz {
                         SupportCredentials = false,
                     },
                     AppSettings = appEnvironmentVariables.Concat(
-                    [
+                    new[]
+                    {
                        new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__accountName",
@@ -110,17 +112,17 @@ namespace UspMeetingSummz {
                         new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__blobServiceUri",
-                            Value = storage.GetBlobEndpoint() 
+                            Value = storage.GetBlobEndpoint()
                         },
                         new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__queueServiceUri",
-                            Value = storage.GetQueueEndpoint() 
+                            Value = storage.GetQueueEndpoint()
                         },
                         new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__tableServiceUri",
-                            Value = storage.GetTableEndpoint() 
+                            Value = storage.GetTableEndpoint()
                         },
 
                         new NameValuePairArgs
@@ -138,7 +140,7 @@ namespace UspMeetingSummz {
                             Name = "FUNCTIONS_WORKER_RUNTIME",
                             Value = "dotnet-isolated"
                         }
-                    ]).ToList()
+                    }).ToList()
                 }
             });
 

@@ -3,6 +3,8 @@ name: MeetAI-pipeline
 variables:
   pulumiStack: 'pklaudat/usp-meeting-summz/prod'
   infraPath: 'infrastructure'
+  appPath: 'functions'
+  azureFunctionsCoreToolsVersion: '4'
 
 pool:
   name: 'self-hosted-agentpool'
@@ -40,3 +42,41 @@ steps:
     stack: $(pulumiStack)
     args: '--yes'
   name: 'pulumi'
+
+- powershell: |
+    $functionAppName = pulumi stack output FunctionName
+    Write-Output "Function App Name: $functionAppName"
+  displayName: 'Retrieve function name using Pulumi deployment'
+  continueOnError: false
+  workingDirectory: $(infraPath)
+
+- task: DotNetCoreCLI@2
+  displayName: 'Restore NuGet Packages for App folder'
+  inputs:
+    command: 'restore'
+    projects: $(appPath)
+    feedsToUse: 'select'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Build Azure Functions Code'
+  inputs:
+    command: 'build'
+    projects: $(appPath)
+
+- powershell: |
+    Write-Output "Installing Azure Functions Core Tools..."
+    npm install -g azure-functions-core-tools@$(azureFunctionsCoreToolsVersion)
+  displayName: 'Install Azure Functions Core Tools'
+  continueOnError: false
+  workingDirectory: $(appPath)
+
+- powershell: |
+    Write-Output "Deploying Azure Functions..."
+    func azure functionapp publish $env:functionAppName --overwrite
+  displayName: 'Deploy Azure Functions Code'
+  continueOnError: false
+  workingDirectory: $(appPath)
+
+
+
+

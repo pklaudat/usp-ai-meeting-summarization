@@ -7,15 +7,18 @@ namespace UspMeetingSummz
 {
     public class MeetingSummzStack : Stack
     {
-        private readonly Config _config;
-        private readonly string _location;
-        private readonly string _env;
+        private Config? _config;
+        private readonly string? _location;
+        private readonly string? _env;
+        
+        [Output]
+        public Output<string> FunctionName { get; private set; }
 
         public MeetingSummzStack()
         {
             _config = new Config();
-            _location = _config.Require("location");
-            _env = _config.Require("env");
+            _location = _config.Get("location");
+            _env = _config.Get("env");
 
             var storageResourceGroup = $"rg-storage-{_location}-{_env}";
             var dataFlowResourceGroup = $"rg-dataflow-{_location}-{_env}";
@@ -25,7 +28,7 @@ namespace UspMeetingSummz
 
             var aiSpeech = CreateAiServices(speechResourceGroup);
 
-            CreateDataFlow(dataFlowResourceGroup, "dataflow", new List<NameValuePairArgs>
+            var function = CreateDataFlow(dataFlowResourceGroup, "dataflow", new List<NameValuePairArgs>
             {
                 new NameValuePairArgs
                 {
@@ -43,20 +46,22 @@ namespace UspMeetingSummz
                     Value = aiSpeech.GetSubscriptionKey()
                 }
             });
+
+            FunctionName = function.FunctionName;
         }
 
-        private void CreateDataFlow(string resourceGroupName, string functionName, List<NameValuePairArgs> environmentVariables)
+        private Function CreateDataFlow(string resourceGroupName, string functionName, List<NameValuePairArgs> environmentVariables)
         {
             var dataFlowRg = new ResourceGroup(resourceGroupName, new ResourceGroupArgs
             {
                 ResourceGroupName = resourceGroupName,
-                Tags = 
-                {
+                Tags = {
                     { "environment", _env }
                 }
             });
 
             var dataOrchestrator = new Function(functionName, _location, _env, dataFlowRg, "meet_summz", environmentVariables);
+            return dataOrchestrator;
         }
 
         private CognitiveServices CreateAiServices(string resourceGroupName)
@@ -64,8 +69,7 @@ namespace UspMeetingSummz
             var speechRg = new ResourceGroup(resourceGroupName, new ResourceGroupArgs
             {
                 ResourceGroupName = resourceGroupName,
-                Tags = 
-                {
+                Tags = {
                     { "environment", _env }
                 }
             });
