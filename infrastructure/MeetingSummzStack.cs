@@ -50,7 +50,6 @@ namespace UspMeetingSummz
             var dataFlowRg = new ResourceGroup(resourceGroupName, new ResourceGroupArgs
             {
                 ResourceGroupName = resourceGroupName,
-                Location = _location,
                 Tags = 
                 {
                     { "environment", _env }
@@ -65,7 +64,6 @@ namespace UspMeetingSummz
             var speechRg = new ResourceGroup(resourceGroupName, new ResourceGroupArgs
             {
                 ResourceGroupName = resourceGroupName,
-                Location = _location,
                 Tags = 
                 {
                     { "environment", _env }
