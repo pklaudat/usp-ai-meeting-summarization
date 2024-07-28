@@ -72,6 +72,17 @@ steps:
 
 - powershell: |
     Write-Output "Deploying Azure Functions..."
+
+    # Remove obj and bin folders
+    Write-Output "Removing obj and bin folders..."
+    Remove-Item -Recurse -Force -ErrorAction Ignore "$(Get-Location)/obj"
+    Remove-Item -Recurse -Force -ErrorAction Ignore "$(Get-Location)/bin"
+
+    # Verify removal
+    Write-Output "Listing files after removal..."
+    Get-ChildItem
+
+    # Deploy the function
     func azure functionapp publish $env:functionAppName --overwrite --dotnet-isolated
   displayName: 'Deploy Azure Functions Code'
   continueOnError: false
