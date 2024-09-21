@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Pulumi.AzureNative.Resources;
 using Pulumi.AzureNative.CognitiveServices;
 using Pulumi.AzureNative.CognitiveServices.Inputs;
@@ -21,7 +22,8 @@ namespace UspMeetingSummz {
             string kind,
             string sku, 
             string location, 
-            string env, 
+            string env,
+            List<string> allowedFqdns, 
             ResourceGroup resourceGroup)
         {
             this._resourceGroup = resourceGroup;
@@ -40,9 +42,11 @@ namespace UspMeetingSummz {
                 {
                     DisableLocalAuth = false,
                     RestrictOutboundNetworkAccess = true,
-                    AllowedFqdnList = [],
-                    Restore = false
+                    AllowedFqdnList = allowedFqdns,
+                    Restore = false,
+                    CustomSubDomainName = _accountName.Replace("_","-")
                 },
+            
                 Sku = new Pulumi.AzureNative.CognitiveServices.Inputs.SkuArgs
                 {
                     Name = sku
