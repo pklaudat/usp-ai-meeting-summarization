@@ -1,3 +1,4 @@
+using Grpc.Core;
 using Newtonsoft.Json;
 
 namespace ETL.Models {
@@ -52,6 +53,15 @@ namespace ETL.Models {
 
     }
 
+    // public enum TranscriptionStatus
+    // {
+    //     NotStarted,    // The transcription job has not started yet.
+    //     Running,       // The transcription job is currently in progress.
+    //     Succeeded,     // The transcription job completed successfully.
+    //     Failed,        // The transcription job failed.
+    //     Cancelled      // The transcription job was cancelled.
+    // }
+
     public class TranscriptDto
     {
 
@@ -63,6 +73,9 @@ namespace ETL.Models {
 
         [JsonProperty("links")]
         public TranscriptLinkDto Links { get; set; }
+
+        [JsonProperty("status")]
+        public string? Status {get; set;}
 
     }
 

@@ -5,9 +5,7 @@ using Microsoft.DurableTask.Client;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Azure.Identity;
-using System.Net.Http.Headers;
 using Azure.Core;
-using RetryOptions = DurableTask.Core.RetryOptions;
 using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
 
@@ -98,41 +96,47 @@ namespace ETL
         {
             var logger = context.CreateReplaySafeLogger("AudioProcessing_Orchestrator");
 
+            // Get the audio input DTO from the orchestration trigger context
             var audio = context.GetInput<AudioInputDto>();
 
-            var transcript = await context.CallActivityAsync<TranscriptDto>
-                ("TranscribeTask", audio);
+            // Call the transcription task activity to get the initial transcript
+            var transcript = await context.CallActivityAsync<TranscriptDto>("TranscribeTask", audio);
 
-            logger.LogInformation("Transcribe task started");
+            logger.LogInformation($"Transcribe task started - sub orchestrator id: {context.InstanceId}");
 
+            // Extract transcript code from the transcription response
             var transcriptCode = GetTranscriptCode(transcript);
 
             logger.LogInformation($"Transcript code is: {transcriptCode}");
 
-            var transcriptCodeData = new TranscriptCodeDto()
+            var transcriptStatus = await context.CallSubOrchestratorAsync<string>(
+                "GetTranscriptStatus",
+                transcriptCode
+            );
+
+            logger.LogInformation($"Transcription Job completed with status : {transcriptStatus}.");
+
+            if (transcriptStatus == "Succeeded")
             {
-                InstanceId = context.InstanceId,
-                TranscriptCode = transcriptCode
+                var transcriptList = await context.CallActivityAsync<List<TranscriptDto>>
+                    ("GetTranscriptFiles", transcriptCode);
 
-            };
+                var transcriptFiles = new TranscriptResponseDto{
+                    InstanceId = context.InstanceId,
+                    Transcripts = transcriptList
+                };
 
-            // var transcriptsList = await context.CallSubOrchestratorAsync<List<TranscriptDto>>
-            //     ("GetTranscriptFiles", transcriptCodeData);
+                logger.LogInformation($"results: {JsonConvert.SerializeObject(transcriptFiles.Transcripts)}");
+                // var processResults = await context.CallSubOrchestratorAsync<string>
+                //     ("ProcessResults", transcriptFiles);
 
-            // var transcripts = new TranscriptResponseDto()
-            // {
-
-            //     InstanceId = context.InstanceId,
-            //     Transcripts = transcriptsList
-
-            // };
-
-            // await context.CallSubOrchestratorAsync("ProcessAllTranscriptFiles", transcripts);
+                logger.LogInformation($"Audio transcription completed - {context.InstanceId}: {audio.Name}");
+            }
 
             using (var cts = new CancellationTokenSource())
             {
 
-                var dueTime = context.CurrentUtcDateTime.AddMinutes(3);
+                var dueTime = context.CurrentUtcDateTime.AddMinutes(5);
                 var timerTask = context.CreateTimer(dueTime, cts.Token);
                 var processedTask = context.WaitForExternalEvent<bool>("Processed");
                 var completedTask = await Task.WhenAny(processedTask, timerTask);
@@ -170,7 +174,7 @@ namespace ETL
 
             var sasToken = sasBuilder.ToSasQueryParameters(userDelegationKey, blobClient.AccountName).ToString();
 
-            return $"{blobClient.Uri}?{sasToken}";
+            return $"{blobClient.Uri}{containerName}?{sasToken}";
         }
 
 
@@ -250,48 +254,131 @@ namespace ETL
 
         }
 
-        private static RetryOptions GetRetryOptions()
+
+        [Function("WaitForTranscriptReadiness")]
+        public static async Task<string> WaitForTranscriptReadinessAsyncTask(
+            [ActivityTrigger] string transcriptionCode, FunctionContext context
+        )
+        {
+            var logger = context.GetLogger("WaitForTranscriptReadiness");
+
+            try
+            {
+                var token = AdOAuth("https://cognitiveservices.azure.com/.default");
+                var getTranscriptDetailsUrlString = Environment.GetEnvironmentVariable("GET_TRANSCRIPT_URL");
+                var getTranscriptDetailsUrl = string.Format(getTranscriptDetailsUrlString, transcriptionCode);
+
+                using var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+                var transcriptDetailsResponse = await httpClient.GetAsync(getTranscriptDetailsUrl);
+
+                if (!transcriptDetailsResponse.IsSuccessStatusCode)
+                {
+                    logger.LogError($"Failed to retrieve transcript details: {transcriptDetailsResponse.StatusCode}");
+                    throw new Exception($"Error fetching transcript details: {transcriptDetailsResponse.StatusCode}");
+                }
+
+                var transcriptDetails = await transcriptDetailsResponse.Content.ReadAsStringAsync();
+                var transcript = JsonConvert.DeserializeObject<TranscriptDto>(transcriptDetails);
+
+                logger.LogInformation($"Transcription status: {transcript.Status.ToUpper()}");
+
+                if (transcript.Status == "Running" || transcript.Status == "InProgress")
+                {
+                    throw new TranscriptionInProgressException();
+                }
+
+                return transcript.Status;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Error in WaitForTranscriptReadiness: {ex.Message}");
+                throw;
+            }
+        }
+
+        
+        [Function("GetTranscriptStatus")]
+        public static async Task<string> GetTranscriptStatusAsync(
+            [OrchestrationTrigger] TaskOrchestrationContext context
+        )
         {
 
-            int.TryParse(Environment.GetEnvironmentVariable("First_Retry_Interval"),
-                                                            out int firstRetryInterval);
+            var transcriptCode = context.GetInput<string>();
 
-            int.TryParse(Environment.GetEnvironmentVariable("Retry_TimeOut"),
-                                                            out int retryTimeout);
+            var logger = context.CreateReplaySafeLogger("GetTranscriptStatus");
 
-            int.TryParse(Environment.GetEnvironmentVariable("Max_Number_Of_Attempts"),
-                                                            out int maxNumberOfAttempts);
+            logger.LogInformation($"Checking status for transcript id: {transcriptCode}");
 
-            double.TryParse(Environment.GetEnvironmentVariable("Back_Off_Attempts"),
-                                                               out double backOffCoefficient);
-            
-            var retryOptions = new RetryOptions(TimeSpan.FromSeconds(firstRetryInterval),
-                                                maxNumberOfAttempts)
+            var retryPolicy = new RetryPolicy(5, TimeSpan.FromMinutes(2))
             {
-                BackoffCoefficient = backOffCoefficient,
-                RetryTimeout = TimeSpan.FromMinutes(retryTimeout)               
-
+                HandleAsync = exception => Task.FromResult(exception.Message.Equals("The transcription is still in progress."))
             };
 
-            return retryOptions;
+            // Define your retry policy
+            var retryOptions = new TaskRetryOptions(retryPolicy);
 
+            // Call the sub-orchestrator with retry policy
+            var transcriptStatus = await context.CallActivityAsync<string>(
+                "WaitForTranscriptReadiness",
+                transcriptCode,
+                new TaskOptions
+                {
+                    Retry = retryOptions
+                }
+            );
+
+            return transcriptStatus;
         }
+
+        public static async Task<List<TranscriptDto>> GetFilesListAsync(
+            [ActivityTrigger] string transcriptCode, string token
+        )
+        {
+            var getTranscriptFilesString = Environment.GetEnvironmentVariable("GET_TRANSCRIPT_FILES_URL");
+            var getTranscriptFilesUrl = string.Format(getTranscriptFilesString, transcriptCode);
+
+            var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+            var transcriptFiles = await httpClient.GetAsync(getTranscriptFilesUrl);
+
+            var transcriptFilesContent = await transcriptFiles.Content.ReadAsStringAsync();
+
+            var transcripts = JsonConvert.DeserializeObject<TranscriptResponseDto>(transcriptFilesContent);
+
+            return transcripts.Transcripts;
         
-        // [Function("GetTranscriptFiles")]
-        // public static async Task<List<TranscriptDto>> GetTranscriptFilesAsync(
-        //     [OrchestrationTrigger] TaskOrchestrationContext context,
-        //     ILogger logger
-        // )
-        // {
+        }
 
-        //     var transcriptCodeData = context.GetInput<TranscriptCodeDto>();
+        [Function("GetTranscriptFiles")]
+        public static async Task<List<TranscriptDto>> GetTranscriptFilesAsync(
+            [ActivityTrigger] string transcriptCode, FunctionContext context
+        )
+        {
+            var logger = context.GetLogger("GetTranscriptFiles");
 
-            
+            var token = AdOAuth("https://cognitiveservices.azure.com/.default");
 
+            List<TranscriptDto> transcriptFilesList = null;
+            do
+            {
+                transcriptFilesList = await GetFilesListAsync(transcriptCode, token);
+                await Task.Delay(TimeSpan.FromSeconds(3));
 
-        //     return transcriptList
+            } while (transcriptFilesList.Count <= 1);
 
-        // }
+            return transcriptFilesList;
+        }
 
+    }
+
+    public class TranscriptionInProgressException : Exception
+    {
+        public TranscriptionInProgressException() 
+            : base("The transcription is still in progress.")
+        {
+        }
     }
 }
