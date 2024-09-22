@@ -89,6 +89,59 @@ namespace ETL
 
         }
 
+        [Function("ProcessResults")]
+        public static async Task<string> ProcessResultAsyncTask(
+            [ActivityTrigger] TranscriptResponseDto transcriptResponse, FunctionContext context
+        )
+        {
+            var logger = context.GetLogger("ProcessResults");
+
+            if (transcriptResponse.Transcripts == null || transcriptResponse.Transcripts.Count <= 1)
+                return null;
+
+            var processedFiles = transcriptResponse.Transcripts
+                .Where((TranscriptDto transcript) =>
+                {
+                    return (transcript.Kind.Equals("Transcription") == true);
+                }).ToList();
+
+            var storageResultsUrl = Environment.GetEnvironmentVariable("transcriptsResultContainerEndpoint");
+
+            var destinationContainer = storageResultsUrl.Split("/")[1];
+            var storageUrl = storageResultsUrl.Split("/")[0];
+
+            logger.LogInformation(storageUrl);
+            logger.LogInformation(storageUrl);
+    
+            var blobClient = new BlobServiceClient(
+                new Uri($"https://{storageUrl}/"),
+                new DefaultAzureCredential()
+            );
+
+            var destinationContainerClient = blobClient.GetBlobContainerClient(destinationContainer);
+
+            try
+            {
+                for (int i=0; i< processedFiles.Count; i++)
+                {
+
+                    var fileUrl = processedFiles[i].Links.ContentUrl;
+                    logger.LogInformation($"copy operation for {fileUrl} - filename: {processedFiles[i].Name}");
+                    var dataDestination = destinationContainerClient.GetBlobClient($"{transcriptResponse.InstanceId}/{processedFiles[i].Name}");
+                    await dataDestination.StartCopyFromUriAsync(new Uri(fileUrl));
+                }
+
+                return "All Files copied successfuly.";
+
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Error copying blob: {ex.Message}");
+                throw;
+            }
+
+        }
+
 
         [Function("AudioProcessing_Orchestrator")]
         public static async Task AudioOrchestrationAsyncTask(
@@ -127,10 +180,12 @@ namespace ETL
                 };
 
                 logger.LogInformation($"results: {JsonConvert.SerializeObject(transcriptFiles.Transcripts)}");
-                // var processResults = await context.CallSubOrchestratorAsync<string>
-                //     ("ProcessResults", transcriptFiles);
+                
+                var processResults = context.CallActivityAsync<string>
+                    ("ProcessResults", transcriptFiles);
 
-                logger.LogInformation($"Audio transcription completed - {context.InstanceId}: {audio.Name}");
+
+                logger.LogInformation($"Audio transcription completed - {context.InstanceId}");
             }
 
             using (var cts = new CancellationTokenSource())
@@ -311,7 +366,7 @@ namespace ETL
 
             logger.LogInformation($"Checking status for transcript id: {transcriptCode}");
 
-            var retryPolicy = new RetryPolicy(5, TimeSpan.FromMinutes(2))
+            var retryPolicy = new RetryPolicy(8, TimeSpan.FromMinutes(1))
             {
                 HandleAsync = exception => Task.FromResult(exception.Message.Equals("The transcription is still in progress."))
             };

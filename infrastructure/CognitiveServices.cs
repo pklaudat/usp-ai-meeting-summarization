@@ -1,12 +1,12 @@
 using System.Collections.Generic;
+using Pulumi;
 using Pulumi.AzureNative.Resources;
 using Pulumi.AzureNative.CognitiveServices;
 using Pulumi.AzureNative.CognitiveServices.Inputs;
-using Pulumi;
 using System.Threading.Tasks;
 
-
-namespace UspMeetingSummz {
+namespace UspMeetingSummz
+{
     class CognitiveServices
     {
         private ResourceGroup _resourceGroup;
@@ -16,6 +16,14 @@ namespace UspMeetingSummz {
         private Account _account;
         private readonly string _location;
         private readonly string _env;
+
+        public Output<string> AccountName { get; private set; }
+
+        public Output<string> CustomDomainEndpoint { get; private set; }
+
+        public Output<string> PrincipalId { get; private set; }
+
+        public Output<string> ResourceGroupId { get; private set; }
 
         public CognitiveServices(
             string name, 
@@ -30,24 +38,40 @@ namespace UspMeetingSummz {
             this._kind = kind;
             this._accountName = $"{kind.ToLower()}-{name}-{location}-{env}".Replace("services", "");
             this._location = location;
-            this._env = env; 
+            this._env = env;
+
+            // Use the proper endpoint domain for Cognitive Services
+            CustomDomainEndpoint = Output.Create($"{_accountName.Replace("_", "-")}.cognitiveservices.azure.com");
+            
+            ResourceGroupId = resourceGroup.Id;
 
             _account = new Account(_accountName, new AccountArgs
             {
                 AccountName = _accountName,
                 Kind = kind,
+                Identity = new IdentityArgs
+                {
+                    Type = Pulumi.AzureNative.CognitiveServices.ResourceIdentityType.SystemAssigned,
+                },
                 ResourceGroupName = resourceGroup.Name,
                 Location = resourceGroup.Location,
-                Properties = new Pulumi.AzureNative.CognitiveServices.Inputs.AccountPropertiesArgs
+                Properties = new AccountPropertiesArgs
                 {
-                    DisableLocalAuth = false,
+                    DisableLocalAuth = true,
                     RestrictOutboundNetworkAccess = true,
                     AllowedFqdnList = allowedFqdns,
                     Restore = false,
-                    CustomSubDomainName = _accountName.Replace("_","-")
+                    CustomSubDomainName = _accountName.Replace("_", "-")
+                    // NetworkAcls = new NetworkRuleSetArgs
+                    // {
+                    //     DefaultAction = "Deny",  // Deny access unless explicitly allowed
+                    //     // Define empty rules for now
+                    //     // VirtualNetworkRules = new VirtualNetworkRuleArgs[] {},
+                    //     // IpRules = new IPRuleArgs[] {}
+                    // }
                 },
-            
-                Sku = new Pulumi.AzureNative.CognitiveServices.Inputs.SkuArgs
+
+                Sku = new SkuArgs
                 {
                     Name = sku
                 }
@@ -56,29 +80,30 @@ namespace UspMeetingSummz {
             {
                 DependsOn = { _resourceGroup }
             });
+
+            PrincipalId = _account.Identity.Apply(identity => identity.PrincipalId);
+            AccountName = _account.Name;
         }
 
-        public Output<string> GetRegionalPublicEndpoint()
-        {
-            return Output.Format($"{_account.Location}.api.cognitive.microsoft.com");
-        }
-
+        // Function to get the location of the Cognitive Services account
         public Output<string> GetAccountLocation()
         {
             return Output.Format($"{_account.Location}");
         }
+
+        // Function to get the subscription key for the Cognitive Services account
         public Output<string> GetSubscriptionKey()
+        {
+            return Output.Tuple(_account.Name, _resourceGroup.Name).Apply(async t =>
             {
-                return Output.Tuple(_account.Name, _resourceGroup.Name).Apply(t =>
+                var (accountName, resourceGroupName) = t;
+                var keys = await ListAccountKeys.InvokeAsync(new ListAccountKeysArgs
                 {
-                    var (accountName, resourceGroupName) = t;
-                    var keys = ListAccountKeys.InvokeAsync(new ListAccountKeysArgs
-                    {
-                        AccountName = accountName,
-                        ResourceGroupName = resourceGroupName
-                    }).Result;
-                    return keys.Key1; // Assuming you want the first key
+                    AccountName = accountName,
+                    ResourceGroupName = resourceGroupName
                 });
-            }
+                return keys.Key1; // Returning the first key
+            });
+        }
     }
 }

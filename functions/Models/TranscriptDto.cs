@@ -68,6 +68,9 @@ namespace ETL.Models {
         [JsonProperty("self")]
         public string Self { get; set; }
 
+        [JsonProperty("name")]
+        public string? Name {get; set;}
+
         [JsonProperty("kind")]
         public string Kind { get; set; }
 

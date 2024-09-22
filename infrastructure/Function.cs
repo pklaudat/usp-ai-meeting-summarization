@@ -20,6 +20,10 @@ namespace UspMeetingSummz
 
         public Output<string> FunctionName { get; private set; }
 
+        public Output<string> FunctionPrincipalId { get; set; }
+
+        public Output<string> ResourceGroupId { get; private set; }
+
         public Function(string name, string location, string env, ResourceGroup resourceGroup, string planName = "meet_summz", List<NameValuePairArgs> appEnvironmentVariables = null)
         {
             this._resourceGroup = resourceGroup;
@@ -31,6 +35,7 @@ namespace UspMeetingSummz
             appEnvironmentVariables = appEnvironmentVariables ?? new List<NameValuePairArgs>(); 
             CreateServerlessFunction(this._functionName, appEnvironmentVariables);
             FunctionName = Output.Create(this._functionName);
+            ResourceGroupId = resourceGroup.Id;
         }
 
         private void OauthAccessToStorage(WebApp function, Output<string> storageAccountId)
@@ -144,7 +149,14 @@ namespace UspMeetingSummz
                 }
             });
 
+            FunctionPrincipalId = function.Identity.Apply(identity => identity.PrincipalId);
+
             OauthAccessToStorage(function, storage.GetStorageAccountId());
+        }
+
+        public Output<string> GetResourceGroupId()
+        {
+            return Output.Format($"");
         }
     }
 }
