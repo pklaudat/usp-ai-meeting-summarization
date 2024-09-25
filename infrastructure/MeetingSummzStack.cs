@@ -116,6 +116,24 @@ namespace UspMeetingSummz
 
             var openai = new CognitiveServices("meet_summz", "OpenAI", "S0", _location, _env, new List<string> {}, speechRg);
 
+            var modelList = new List<ModelSpecs>{
+                new ModelSpecs
+                {
+                    Name = "gpt-35-turbo",
+                    Version = "0613",
+                    Capacity = 10
+                },
+                new ModelSpecs
+                {
+                    Name = "gpt-4o",
+                    Version = "2024-05-13",
+                    Capacity = 1,
+                }
+            };
+            
+            for (int i=0; i<modelList.Count; i++)
+                openai.CreateOpenAIModel(modelList[i].Name, modelList[i].Version, modelList[i].Capacity);
+
             return aiSpeech;
         }
     }

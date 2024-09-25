@@ -1,4 +1,4 @@
 config:
-  azure-native:location: WestUS2
-  location: wus2
+  azure-native:location: EastUs2
+  location: eus2
   env: prod
