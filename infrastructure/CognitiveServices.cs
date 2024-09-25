@@ -3,7 +3,7 @@ using Pulumi;
 using Pulumi.AzureNative.Resources;
 using Pulumi.AzureNative.CognitiveServices;
 using Pulumi.AzureNative.CognitiveServices.Inputs;
-using System.Threading.Tasks;
+
 
 namespace UspMeetingSummz
 {
@@ -91,6 +91,38 @@ namespace UspMeetingSummz
             return Output.Format($"{_account.Location}");
         }
 
+        public void CreateOpenAIModel(string modelName, string modelVersion, int capacity)
+        {
+            new Pulumi.AzureNative.CognitiveServices.Deployment(
+                modelName,
+                new Pulumi.AzureNative.CognitiveServices.DeploymentArgs
+                {
+                    AccountName = _account.Name,
+                    ResourceGroupName = _resourceGroup.Name,
+                    DeploymentName = modelName,
+                    Sku = new SkuArgs
+                    {
+                        Name = "Standard",
+                        Capacity = capacity
+                    },
+                    Properties = new DeploymentPropertiesArgs
+                    {
+                        Model = new DeploymentModelArgs
+                        {
+                            Version = modelVersion,
+                            Name = modelName,
+                            Format = "OpenAI"
+                        }
+                        
+                    }
+                    
+                   
+                }
+                
+            
+            );
+        }
+
         // Function to get the subscription key for the Cognitive Services account
         public Output<string> GetSubscriptionKey()
         {
@@ -105,5 +137,12 @@ namespace UspMeetingSummz
                 return keys.Key1; // Returning the first key
             });
         }
+    }
+    
+    public class ModelSpecs
+    {
+        public string Name {get; set;}
+        public string Version {get; set;}
+        public int Capacity {get; set;}
     }
 }
