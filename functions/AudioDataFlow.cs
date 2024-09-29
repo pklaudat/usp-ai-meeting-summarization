@@ -8,6 +8,9 @@ using Azure.Identity;
 using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
+using System.Reflection.Metadata;
+using System.Configuration;
+using Microsoft.CognitiveServices.Speech.Transcription;
 
 namespace ETL
 {
@@ -69,8 +72,12 @@ namespace ETL
             [OrchestrationTrigger] TaskOrchestrationContext context
         )
         {
+            var logger = context.CreateReplaySafeLogger("TranscribeAudio_Orchestrator");
             var audio = context.GetInput<AudioInputDto>();
-            await context.CallSubOrchestratorAsync("AudioProcessing_Orchestrator", audio);
+            string meetingId = await context.CallSubOrchestratorAsync<string>("AudioProcessing_Orchestrator", audio);
+            // string meetingId = "65f0142a677d55928bab0d27d14e5946";
+            logger.LogInformation("Meeting ID: {0} has been transcripted...", meetingId);
+            await context.CallSubOrchestratorAsync("Summarization_Orchestrator", meetingId);
         }
 
         private static string GetTranscriptCode(TranscriptDto transcript)
@@ -144,7 +151,7 @@ namespace ETL
 
 
         [Function("AudioProcessing_Orchestrator")]
-        public static async Task AudioOrchestrationAsyncTask(
+        public static async Task<string> AudioOrchestrationAsyncTask(
             [OrchestrationTrigger] TaskOrchestrationContext context)
         {
             var logger = context.CreateReplaySafeLogger("AudioProcessing_Orchestrator");
@@ -186,23 +193,27 @@ namespace ETL
 
 
                 logger.LogInformation($"Audio transcription completed - {context.InstanceId}");
+
+                return transcriptFiles.InstanceId;
             }
 
-            using (var cts = new CancellationTokenSource())
-            {
+            // using (var cts = new CancellationTokenSource())
+            // {
 
-                var dueTime = context.CurrentUtcDateTime.AddMinutes(5);
-                var timerTask = context.CreateTimer(dueTime, cts.Token);
-                var processedTask = context.WaitForExternalEvent<bool>("Processed");
-                var completedTask = await Task.WhenAny(processedTask, timerTask);
-                var isProcessed = processedTask.Result;
+            //     var dueTime = context.CurrentUtcDateTime.AddMinutes(5);
+            //     var timerTask = context.CreateTimer(dueTime, cts.Token);
+            //     var processedTask = context.WaitForExternalEvent<bool>("Processed");
+            //     var completedTask = await Task.WhenAny(processedTask, timerTask);
+            //     var isProcessed = processedTask.Result;
 
-                if (isProcessed == true)
-                    logger.LogInformation("Processsed");
-                else
-                    logger.LogInformation("Not yet");
+            //     if (isProcessed == true)
+            //         logger.LogInformation("Processsed");
+            //     else
+            //         logger.LogInformation("Not yet");
 
-            }
+            // }
+
+            return null;
         }
 
         private static string GenerateSasToken(string storageUrl, string containerName, BlobSasPermissions permission, int Offset)
@@ -267,7 +278,7 @@ namespace ETL
                     WordLevelTimestampsEnabled = false,
                     PunctuationMode = "DictatedAndAutomatic",
                     ProfanityFilterMode = "Masked",
-                    Channels = [0],
+                    Channels = [0 , 1],
                     DestinationContainerUrl = destinationContainerSas
                 },
 
@@ -339,7 +350,7 @@ namespace ETL
 
                 logger.LogInformation($"Transcription status: {transcript.Status.ToUpper()}");
 
-                if (transcript.Status == "Running" || transcript.Status == "InProgress")
+                if (transcript.Status == "Running" || transcript.Status == "InProgress" || transcript.Status == "NotStarted")
                 {
                     throw new TranscriptionInProgressException();
                 }
@@ -366,9 +377,13 @@ namespace ETL
 
             logger.LogInformation($"Checking status for transcript id: {transcriptCode}");
 
-            var retryPolicy = new RetryPolicy(8, TimeSpan.FromMinutes(1))
+            var retryPolicy = new RetryPolicy(80, TimeSpan.FromSeconds(10))
             {
-                HandleAsync = exception => Task.FromResult(exception.Message.Equals("The transcription is still in progress."))
+                HandleAsync = exception => 
+                {
+                    logger.LogWarning("Retry triggered due to exception: {0}", exception.Message);
+                    return Task.FromResult(exception.Message.Equals("Error in WaitForTranscriptReadiness: The transcription is still in progress."));
+                }
             };
 
             // Define your retry policy
@@ -427,6 +442,144 @@ namespace ETL
             return transcriptFilesList;
         }
 
+
+        [Function("TokenizeTranscript")]
+        public static List<MeetingTokensDto> TokenizeTranscript([ActivityTrigger] List<MeetingDto> meetings, FunctionContext context)
+        {
+
+            var logger = context.GetLogger("TokenizeTranscript");
+
+            var tokenSize = int.Parse(Environment.GetEnvironmentVariable("TOKEN_SIZE") ?? "10");
+
+            var tokens = new List<MeetingTokensDto> {};
+
+
+            foreach (var meeting in meetings)
+            {
+                var meetingToken = new MeetingTokensDto
+                {
+                    Source = meeting.Source,
+                    ChunkList = new List<MeetingChunkDto> {}
+                };
+
+                foreach (var ctx in meeting.MeetingContentList)
+                {
+                    string fullContent = ctx.MaskedITN;
+                    int contentLength = fullContent.Length;
+
+                    for (int chunkStart=0; chunkStart < contentLength; chunkStart += tokenSize )
+                    {
+                        var chunkSize = Math.Min(tokenSize, contentLength - chunkStart);
+                        string chunkContent = fullContent.Substring(chunkStart, chunkSize);
+
+                        var meetingChunk = new MeetingChunkDto
+                        {
+                            Size = chunkSize,
+                            Content = chunkContent
+                        };
+
+                        logger.LogInformation("Chunk: {0} | size: {1}", chunkContent, chunkSize);
+
+                        meetingToken.ChunkList.Add(meetingChunk);
+                    }
+
+                }
+                
+            }
+
+            return tokens;
+        }
+
+        public static List<MeetingDto> OpenMeetingContent(List<string> meetingFiles, BlobContainerClient containerClient, ILogger logger)
+        {
+
+            var dtoList = new List<MeetingDto> {};
+
+            foreach (var meetingText in meetingFiles)
+            {
+                logger.LogInformation("open file: {0}", meetingText);
+
+                BlobClient blob = containerClient.GetBlobClient(meetingText);
+                
+                var blobContent = blob.OpenRead();
+
+                using (var streamReader = new StreamReader(blobContent))
+                {
+                    var jsonContent = streamReader.ReadToEnd();
+
+                    logger.LogInformation(jsonContent);
+                    
+                    var meetingDto = JsonConvert.DeserializeObject<MeetingDto>(jsonContent);
+
+                    dtoList.Add(meetingDto);
+                }
+            }
+
+            logger.LogInformation("Number of meeting files: {0}", dtoList.Count);
+
+            return dtoList;
+
+        }
+
+        [Function("SummarizeChunks")]
+        public static void SummarizeChunk(
+            [ActivityTrigger] List<MeetingTokensDto> meetingTokens, FunctionContext context
+        )
+        {
+            var logger = context.GetLogger("SummarizeChunks");
+
+
+        }
+
+        [Function("Summarization_Orchestrator")]
+        public static async Task<string> SummarizationAsyncTask(
+            [OrchestrationTrigger] TaskOrchestrationContext context)
+        {
+            
+            var meetingId = context.GetInput<string>();
+
+            var logger = context.CreateReplaySafeLogger("Summarization_Orchestrator");
+            logger.LogInformation("Summarization process has been started. Meeting ID: {0}", meetingId);
+
+            string meetingBlobEndpoint = Environment.GetEnvironmentVariable("transcriptsResultContainerEndpoint") + $"/{meetingId}";
+
+            logger.LogInformation("Meeting ID results stored in: {0}", meetingBlobEndpoint);
+
+            string storageUrl = meetingBlobEndpoint.Split("/")[0];
+
+            var resultsContainerClient = new BlobServiceClient(
+                new Uri($"https://{storageUrl}/"),
+                new DefaultAzureCredential()
+            ).GetBlobContainerClient($"results");
+
+            var blobList = resultsContainerClient.GetBlobs();
+
+            var meetingFiles = new List<string> {};
+
+            foreach (var blob in blobList)
+            {
+                
+                if (blob.Name.Contains(meetingId))
+                {
+                    meetingFiles.Add(blob.Name);
+                    logger.LogInformation("Found blob {0} for meeting id: {1} under the transcript results.", blob.Name, meetingId);
+                }
+            }
+
+            logger.LogInformation("Extract the meeting content...");
+
+            var meetings = OpenMeetingContent(meetingFiles, resultsContainerClient, logger);
+
+            logger.LogInformation("Processed {0} files", meetings.Count);
+
+            var tokens = context.CallActivityAsync<List<MeetingTokensDto>>("TokenizeTranscript", meetings);
+
+            var summarizations = context.CallActivityAsync("SummarizeChunks", tokens);
+
+
+            return "ok";
+
+        }
     }
 
     public class TranscriptionInProgressException : Exception
@@ -436,4 +589,5 @@ namespace ETL
         {
         }
     }
+
 }

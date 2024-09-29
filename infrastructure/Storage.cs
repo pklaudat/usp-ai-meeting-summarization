@@ -56,11 +56,11 @@ namespace UspMeetingSummz
 
         public Output<string> GetAccountName() => _storageAccount.Name;
 
-        public Output<string> CreateBlobContainer(string blobName, StorageAccount storageAccount, string filePath = "")
+        public Output<string> CreateBlobContainer(string blobName, string filePath = "")
         {
             var container = new BlobContainer($"{blobName}", new BlobContainerArgs
             {
-                AccountName = storageAccount.Name,
+                AccountName = _storageAccount.Name,
                 ResourceGroupName = _resourceGroup.Name,
                 PublicAccess = PublicAccess.None,
             });
@@ -69,7 +69,7 @@ namespace UspMeetingSummz
             {
                 var blob = new Blob("zip", new BlobArgs
                 {
-                    AccountName = storageAccount.Name,
+                    AccountName = _storageAccount.Name,
                     ContainerName = container.Name,
                     ResourceGroupName = _resourceGroup.Name,
                     Type = BlobType.Block,
@@ -77,7 +77,7 @@ namespace UspMeetingSummz
                 });
             }
 
-            return Output.Format($"https://{storageAccount.Name}.blob.core.windows.net/{container.Name}");
+            return Output.Format($"https://{_storageAccount.Name}.blob.core.windows.net/{container.Name}");
         }
 
         public Output<string> GetStorageAccountId() => _storageAccount.Id;
