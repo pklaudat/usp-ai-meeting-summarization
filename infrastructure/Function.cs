@@ -18,6 +18,8 @@ namespace UspMeetingSummz
         private readonly string _location;
         private readonly string _env;
 
+        private Storage  _storage;
+
         public Output<string> FunctionName { get; private set; }
 
         public Output<string> FunctionPrincipalId { get; set; }
@@ -81,7 +83,7 @@ namespace UspMeetingSummz
                 DependsOn = { _resourceGroup }
             });
 
-            var storage = new Storage(functionName.Split("-")[1], _location, _env, _resourceGroup);
+            _storage = new Storage(functionName.Split("-")[1], _location, _env, _resourceGroup);
             
             var function = new WebApp(functionName, new WebAppArgs
             {
@@ -112,22 +114,22 @@ namespace UspMeetingSummz
                        new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__accountName",
-                            Value = storage.GetAccountName()
+                            Value = _storage.GetAccountName()
                         },
                         new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__blobServiceUri",
-                            Value = storage.GetBlobEndpoint()
+                            Value = _storage.GetBlobEndpoint()
                         },
                         new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__queueServiceUri",
-                            Value = storage.GetQueueEndpoint()
+                            Value = _storage.GetQueueEndpoint()
                         },
                         new NameValuePairArgs
                         {
                             Name = "AzureWebJobsStorage__tableServiceUri",
-                            Value = storage.GetTableEndpoint()
+                            Value = _storage.GetTableEndpoint()
                         },
 
                         new NameValuePairArgs
@@ -151,12 +153,17 @@ namespace UspMeetingSummz
 
             FunctionPrincipalId = function.Identity.Apply(identity => identity.PrincipalId);
 
-            OauthAccessToStorage(function, storage.GetStorageAccountId());
+            OauthAccessToStorage(function, _storage.GetStorageAccountId());
         }
 
         public Output<string> GetResourceGroupId()
         {
             return Output.Format($"");
+        }
+
+        public Storage GetFunctionStorage()
+        {
+            return _storage;
         }
     }
 }

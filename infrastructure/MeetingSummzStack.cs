@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Pulumi;
 using Pulumi.AzureNative.Authorization;
 using Pulumi.AzureNative.Resources;
@@ -67,6 +68,13 @@ namespace UspMeetingSummz
                     Value = $"{dataSourceEndpoint}/transcripts"
                 }
             });
+
+            var blobContainers = new string[] { "wavfiles", "transcripts", "results"};
+
+            for (int i = 0; i < 3; i++)
+            {
+                function.GetFunctionStorage().CreateBlobContainer(blobContainers[i]);
+            }
 
             FunctionName = function.FunctionName;
 
