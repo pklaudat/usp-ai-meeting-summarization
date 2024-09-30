@@ -19,7 +19,7 @@ namespace ETL.Models {
         public string Model;
 
         [JsonProperty("messages")]
-        public List<PromptDto> Prompt;
+        public List<PromptDto> Messages;
 
     }
 

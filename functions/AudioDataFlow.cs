@@ -8,9 +8,7 @@ using Azure.Identity;
 using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
-using System.Reflection.Metadata;
-using System.Configuration;
-using Microsoft.CognitiveServices.Speech.Transcription;
+using Azure.AI.OpenAI;
 
 namespace ETL
 {
@@ -521,13 +519,93 @@ namespace ETL
 
         }
 
+        public static async Task<PromptResponseDto> CallOpenAI(
+            PromptRequestDto prompt, ILogger logger
+        )
+        {
+
+            var completionsEdpoint = String.Format(
+                Environment.GetEnvironmentVariable("CHAT_COMPLETIONS_URL"),
+                Environment.GetEnvironmentVariable("OPENAI_MODEL")
+            );
+
+            var token = AdOAuth("https://cognitiveservices.azure.com/.default");
+            
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+            var requestContent = new StringContent(JsonConvert.SerializeObject(prompt), System.Text.Encoding.UTF8, "application/json");
+            
+            var response = await httpClient.PostAsync(completionsEdpoint, requestContent);
+
+            var completions = await response.Content.ReadAsStringAsync();
+
+            logger.LogInformation("");
+
+            var modelResponse = JsonConvert.DeserializeObject<PromptResponseDto>(completions);
+
+            return modelResponse;
+        }
+
         [Function("SummarizeChunks")]
-        public static void SummarizeChunk(
+        public static async Task<PromptResponseDto> SummarizeChunk(
             [ActivityTrigger] List<MeetingTokensDto> meetingTokens, FunctionContext context
         )
         {
             var logger = context.GetLogger("SummarizeChunks");
 
+            var model = Environment.GetEnvironmentVariable("OPENAI_MODEL");
+
+            var systemMessage = new PromptDto 
+            {
+                Role = "System",
+                Content = "You are an AI assistant specialized in summarizing meetings. Your summaries should capture key discussion points, decisions made, action items, and relevant questions. Ensure the summary is concise and easy to understand, but cover all critical information from the meeting, including any plan or next meeting scheduled."
+            };
+
+            var prompts = new List<PromptRequestDto> {};
+            var summaries = new List<PromptResponseDto> {};
+
+            foreach (var meet in meetingTokens)
+            {
+                foreach(var chunk in meet.ChunkList)
+                {
+                    var prompt = new PromptRequestDto
+                    {
+                        Model = model,
+                        Messages = new List<PromptDto>
+                        {
+                            systemMessage,                                
+                            new PromptDto
+                            {
+                                Role = "User",
+                                Content = chunk.Content
+                            }
+                        }
+                    };
+                    
+                    prompts.Add(prompt);
+
+                    var response = await CallOpenAI(prompt, logger);
+
+                    summaries.Add(response);
+                };
+            }
+
+            var totalPromptRequest = new PromptRequestDto
+            {
+                Model = model,
+                Messages = new List<PromptDto>
+                {
+                    systemMessage,
+                    
+                }
+            };
+
+            var meetingSummarization = await CallOpenAI(
+                totalPromptRequest, logger
+            );
+
+            return meetingSummarization;
 
         }
 
