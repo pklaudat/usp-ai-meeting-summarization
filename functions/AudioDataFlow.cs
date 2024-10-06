@@ -8,7 +8,12 @@ using Azure.Identity;
 using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
-using Azure.AI.OpenAI;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Http;
+using System.Net;
+using Castle.Core.Logging;
+using ILogger = Microsoft.Extensions.Logging.ILogger;
+
 
 namespace ETL
 {
@@ -72,8 +77,8 @@ namespace ETL
         {
             var logger = context.CreateReplaySafeLogger("TranscribeAudio_Orchestrator");
             var audio = context.GetInput<AudioInputDto>();
-            string meetingId = await context.CallSubOrchestratorAsync<string>("AudioProcessing_Orchestrator", audio);
-            // string meetingId = "65f0142a677d55928bab0d27d14e5946";
+            // string meetingId = await context.CallSubOrchestratorAsync<string>("AudioProcessing_Orchestrator", audio);
+            string meetingId = "0b694dec8ee35f4999c523c06db352fd";
             logger.LogInformation("Meeting ID: {0} has been transcripted...", meetingId);
             await context.CallSubOrchestratorAsync("Summarization_Orchestrator", meetingId);
         }
@@ -326,40 +331,37 @@ namespace ETL
         {
             var logger = context.GetLogger("WaitForTranscriptReadiness");
 
-            try
+            var token = AdOAuth("https://cognitiveservices.azure.com/.default");
+            var getTranscriptDetailsUrlString = Environment.GetEnvironmentVariable("GET_TRANSCRIPT_URL");
+            var getTranscriptDetailsUrl = string.Format(getTranscriptDetailsUrlString, transcriptionCode);
+
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+            var transcriptDetailsResponse = await httpClient.GetAsync(getTranscriptDetailsUrl);
+
+            if (!transcriptDetailsResponse.IsSuccessStatusCode)
             {
-                var token = AdOAuth("https://cognitiveservices.azure.com/.default");
-                var getTranscriptDetailsUrlString = Environment.GetEnvironmentVariable("GET_TRANSCRIPT_URL");
-                var getTranscriptDetailsUrl = string.Format(getTranscriptDetailsUrlString, transcriptionCode);
-
-                using var httpClient = new HttpClient();
-                httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
-
-                var transcriptDetailsResponse = await httpClient.GetAsync(getTranscriptDetailsUrl);
-
-                if (!transcriptDetailsResponse.IsSuccessStatusCode)
-                {
-                    logger.LogError($"Failed to retrieve transcript details: {transcriptDetailsResponse.StatusCode}");
-                    throw new Exception($"Error fetching transcript details: {transcriptDetailsResponse.StatusCode}");
-                }
-
-                var transcriptDetails = await transcriptDetailsResponse.Content.ReadAsStringAsync();
-                var transcript = JsonConvert.DeserializeObject<TranscriptDto>(transcriptDetails);
-
-                logger.LogInformation($"Transcription status: {transcript.Status.ToUpper()}");
-
-                if (transcript.Status == "Running" || transcript.Status == "InProgress" || transcript.Status == "NotStarted")
-                {
-                    throw new TranscriptionInProgressException();
-                }
-
-                return transcript.Status;
+                logger.LogError($"Failed to retrieve transcript details: {transcriptDetailsResponse.StatusCode}");
+                throw new Exception($"Error fetching transcript details: {transcriptDetailsResponse.StatusCode}");
             }
-            catch (Exception ex)
+
+            var transcriptDetails = await transcriptDetailsResponse.Content.ReadAsStringAsync();
+            var transcript = JsonConvert.DeserializeObject<TranscriptDto>(transcriptDetails);
+
+            logger.LogInformation($"Transcription status: {transcript.Status.ToUpper()}");
+
+            if (transcript.Status == "Running" || transcript.Status == "InProgress" || transcript.Status == "NotStarted")
             {
-                logger.LogError($"Error in WaitForTranscriptReadiness: {ex.Message}");
-                throw;
+                throw new TranscriptionInProgressException();
             }
+
+            return transcript.Status;
+            // catch (Exception ex)
+            // {
+            //     logger.LogError($"Error in WaitForTranscriptReadiness: {ex.Message}");
+            //     throw;
+            // }
         }
 
         
@@ -380,7 +382,7 @@ namespace ETL
                 HandleAsync = exception => 
                 {
                     logger.LogWarning("Retry triggered due to exception: {0}", exception.Message);
-                    return Task.FromResult(exception.Message.Equals("Error in WaitForTranscriptReadiness: The transcription is still in progress."));
+                    return Task.FromResult(exception.Message.Equals("The transcription is still in progress."));
                 }
             };
 
@@ -476,15 +478,23 @@ namespace ETL
                             Content = chunkContent
                         };
 
-                        logger.LogInformation("Chunk: {0} | size: {1}", chunkContent, chunkSize);
+                        // logger.LogInformation("Chunk: {0} | size: {1}", chunkContent, chunkSize);
 
                         meetingToken.ChunkList.Add(meetingChunk);
                     }
 
                 }
+
+                tokens.Add(meetingToken);
                 
             }
 
+
+            foreach(var tt in tokens)
+            {
+                logger.LogInformation("token {0} - number of chunks: {1}", tokens.IndexOf(tt), tt.ChunkList.ToArray().Length);
+            }
+            
             return tokens;
         }
 
@@ -495,7 +505,7 @@ namespace ETL
 
             foreach (var meetingText in meetingFiles)
             {
-                logger.LogInformation("open file: {0}", meetingText);
+                // logger.LogInformation("open file: {0}", meetingText);
 
                 BlobClient blob = containerClient.GetBlobClient(meetingText);
                 
@@ -505,7 +515,7 @@ namespace ETL
                 {
                     var jsonContent = streamReader.ReadToEnd();
 
-                    logger.LogInformation(jsonContent);
+                    // logger.LogInformation(jsonContent);
                     
                     var meetingDto = JsonConvert.DeserializeObject<MeetingDto>(jsonContent);
 
@@ -524,7 +534,7 @@ namespace ETL
         )
         {
 
-            var completionsEdpoint = String.Format(
+            var completionsEndpoint = String.Format(
                 Environment.GetEnvironmentVariable("CHAT_COMPLETIONS_URL"),
                 Environment.GetEnvironmentVariable("OPENAI_MODEL")
             );
@@ -535,77 +545,188 @@ namespace ETL
             httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
 
             var requestContent = new StringContent(JsonConvert.SerializeObject(prompt), System.Text.Encoding.UTF8, "application/json");
+
+            var response = await PostWithRetryAsync(httpClient, completionsEndpoint, requestContent, 10, logger);
             
-            var response = await httpClient.PostAsync(completionsEdpoint, requestContent);
-
             var completions = await response.Content.ReadAsStringAsync();
-
-            logger.LogInformation("");
-
+            logger.LogInformation(completions);
             var modelResponse = JsonConvert.DeserializeObject<PromptResponseDto>(completions);
-
             return modelResponse;
+
+        }
+
+        static async Task<HttpResponseMessage> PostWithRetryAsync(HttpClient client, string url, HttpContent content, int maxRetries, ILogger logger)
+        {
+            int retryCount = 0;
+            int baseDelay = 2000; // Start with a 2-second delay
+            HttpResponseMessage response;
+
+            do
+            {
+                response = await client.PostAsync(url, content);
+
+                if (response.StatusCode == HttpStatusCode.TooManyRequests) // Handle 429 status code
+                {
+                    retryCount++;
+                    logger.LogWarning($"Request throttled (429). Retry {retryCount} of {maxRetries}.");
+
+                    if (response.Headers.TryGetValues("Retry-After", out var retryAfterValues))
+                    {
+                        if (int.TryParse(retryAfterValues.First(), out int retryAfterSeconds))
+                        {
+                            await Task.Delay(retryAfterSeconds * 1000); // Wait based on Retry-After header
+                        }
+                    }
+                    else
+                    {
+                        // Exponential backoff if no 'Retry-After' header
+                        var delay = baseDelay * (int)Math.Pow(2, retryCount - 1); // Exponential backoff
+                        await Task.Delay(delay);
+                    }
+                }
+                else if (!response.IsSuccessStatusCode)
+                {
+                    // Log any other error responses
+                    logger.LogError($"Failed request with status code {response.StatusCode}. Response: {await response.Content.ReadAsStringAsync()}");
+                    throw new HttpRequestException($"Failed request with status code {response.StatusCode}");
+                }
+
+            } while (response.StatusCode == HttpStatusCode.TooManyRequests && retryCount < maxRetries);
+
+            if (retryCount == maxRetries)
+            {
+                logger.LogError($"Exceeded maximum retry attempts ({maxRetries}) for throttled request.");
+                throw new HttpRequestException($"Exceeded max retry attempts due to repeated 429 errors.");
+            }
+
+            return response;
         }
 
         [Function("SummarizeChunks")]
-        public static async Task<PromptResponseDto> SummarizeChunk(
+        public static async Task<PromptResponseDto> SummarizeChunksAsyncTask(
             [ActivityTrigger] List<MeetingTokensDto> meetingTokens, FunctionContext context
         )
         {
             var logger = context.GetLogger("SummarizeChunks");
-
             var model = Environment.GetEnvironmentVariable("OPENAI_MODEL");
 
-            var systemMessage = new PromptDto 
+            var completionsEndpoint = String.Format(
+                Environment.GetEnvironmentVariable("CHAT_COMPLETIONS_URL"),
+                model
+            );
+
+            var token = AdOAuth("https://cognitiveservices.azure.com/.default");
+
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+            logger.LogInformation("Building prompt to summarize the meeting text.");
+
+            var systemMessage = new PromptDto
             {
-                Role = "System",
-                Content = "You are an AI assistant specialized in summarizing meetings. Your summaries should capture key discussion points, decisions made, action items, and relevant questions. Ensure the summary is concise and easy to understand, but cover all critical information from the meeting, including any plan or next meeting scheduled."
+                Role = "system",
+                Content = "Summarize any given text in at most 4 setences, each setence must not exceed 15 words. Keep only the most important details such as: meeting core ideas and any future action as outcome."
             };
 
-            var prompts = new List<PromptRequestDto> {};
-            var summaries = new List<PromptResponseDto> {};
+            // List to store the tasks for chunk summarization
+            var chunkSummarizationTasks = new List<Task<HttpResponseMessage>>(); 
 
+            // Loop through each meeting and process chunks in parallel
             foreach (var meet in meetingTokens)
             {
-                foreach(var chunk in meet.ChunkList)
+                foreach (var chunk in meet.ChunkList)
                 {
+                    // Prepare a prompt for each chunk
                     var prompt = new PromptRequestDto
                     {
                         Model = model,
                         Messages = new List<PromptDto>
                         {
-                            systemMessage,                                
+                            systemMessage,
                             new PromptDto
                             {
-                                Role = "User",
-                                Content = chunk.Content
+                                Role = "user",
+                                Content = chunk.Content // Chunk content sent for summarization
                             }
                         }
                     };
-                    
-                    prompts.Add(prompt);
 
-                    var response = await CallOpenAI(prompt, logger);
+                    logger.LogInformation("User prompt: {0}", chunk.Content);
 
-                    summaries.Add(response);
-                };
+                    // Create a task to call OpenAI and add it to the task list
+                    var requestContent = new StringContent(JsonConvert.SerializeObject(prompt), System.Text.Encoding.UTF8, "application/json");
+
+                    // Wrap the HTTP call in a task, but do not await it yet
+                    var chunkTask = PostWithRetryAsync(httpClient, completionsEndpoint, requestContent, 10, logger);
+                    chunkSummarizationTasks.Add(chunkTask);  // Add the task to the list
+                }
             }
 
-            var totalPromptRequest = new PromptRequestDto
+            logger.LogInformation("Total tasks created: {0}", chunkSummarizationTasks.Count);
+
+            try
             {
-                Model = model,
-                Messages = new List<PromptDto>
+                // Wait for all the tasks to complete asynchronously
+                var chunkResponses = await Task.WhenAll(chunkSummarizationTasks);
+
+                logger.LogInformation("All chunk requests completed. Processing responses...");
+
+                var chunkSummarizations = new List<PromptResponseDto>();
+
+                // Process each response
+                foreach (var response in chunkResponses)
                 {
-                    systemMessage,
-                    
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var jsonResponse = await response.Content.ReadAsStringAsync();
+                        var summary = JsonConvert.DeserializeObject<PromptResponseDto>(jsonResponse);
+                        chunkSummarizations.Add(summary);
+                    }
+                    else
+                    {
+                        logger.LogError("Error with status code: {0}", response.StatusCode);
+                    }
                 }
-            };
 
-            var meetingSummarization = await CallOpenAI(
-                totalPromptRequest, logger
-            );
+                // Collect the summarized content from all completed tasks
+                var summaries = chunkSummarizations
+                    .Select(response => response.Choices[0].Message.Content) // Assuming this is the structure of the response
+                    .ToList();
 
-            return meetingSummarization;
+                // Combine the summarized chunks for a final overall meeting summarization
+                var totalContent = string.Join("\n", summaries); // Join all chunk summaries into one
+
+                // logger.LogInformation("Total content for summarization: {0}", totalContent);
+
+                var finalPrompt = new PromptRequestDto
+                {
+                    Model = model,
+                    Messages = new List<PromptDto>
+                    {
+                        new PromptDto
+                        {
+                            Role = "system",
+                            Content = "You're an AI assistance specialized in Meeting Summarization that provides clear summarization based on four topics: 1. overview, 2. attendees and roles, 3. key discussion points  and 4. decisions or future actions.  Avoid terms such as \"The meeting discussed\"."
+                        },
+                        new PromptDto
+                        {
+                            Role = "user",
+                            Content = $"Summarize the following meeting based on these summaries:\n{totalContent}"
+                        }
+                    }
+                };
+
+                var finalMeetingSummarization = await CallOpenAI(finalPrompt, logger);
+
+                // logger.LogInformation("Final summarization: {0}", finalMeetingSummarization.Choices[0].Message.Content);
+
+                return finalMeetingSummarization;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An error occurred during chunk summarization.");
+                throw; // Rethrow the exception if necessary
+            }
 
         }
 
@@ -650,9 +771,11 @@ namespace ETL
 
             logger.LogInformation("Processed {0} files", meetings.Count);
 
-            var tokens = context.CallActivityAsync<List<MeetingTokensDto>>("TokenizeTranscript", meetings);
+            var tokens = await context.CallActivityAsync<List<MeetingTokensDto>>("TokenizeTranscript", meetings);
 
-            var summarizations = context.CallActivityAsync("SummarizeChunks", tokens);
+            logger.LogInformation("Chunk summarization started ... number of meeting tokens: {0}", tokens.ToArray().Length);
+
+            await context.CallActivityAsync("SummarizeChunks", tokens);
 
 
             return "ok";
