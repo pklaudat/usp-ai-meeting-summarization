@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using Pulumi;
 using Pulumi.AzureNative.Authorization;
 using Pulumi.AzureNative.Resources;
@@ -107,6 +106,9 @@ namespace UspMeetingSummz
             });
 
             var dataOrchestrator = new Function(functionName, _location, _env, dataFlowRg, "meet_summz", environmentVariables);
+
+            // var deliveryLayer = new CosmosDb(functionName, _location, _env, dataFlowRg);
+
             return dataOrchestrator;
         }
 
@@ -129,13 +131,13 @@ namespace UspMeetingSummz
                 {
                     Name = "gpt-35-turbo",
                     Version = "0613",
-                    Capacity = 10
+                    Capacity = 30
                 },
                 new ModelSpecs
                 {
                     Name = "gpt-4o",
                     Version = "2024-05-13",
-                    Capacity = 1,
+                    Capacity = 8,
                 }
             };
             

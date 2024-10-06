@@ -10,7 +10,7 @@ namespace ETL.Models {
         public string Role {get; set;}
 
         [JsonProperty("content")]
-        public string Content;
+        public string Content {get; set;}
     }
     
     public class PromptRequestDto
@@ -26,7 +26,10 @@ namespace ETL.Models {
 
     public class ChoicesDto
     {
+        [JsonProperty("index")]
         public int Index { get; set; }
+
+        [JsonProperty("message")]
         public PromptDto Message { get; set; }
     }
 
@@ -35,7 +38,7 @@ namespace ETL.Models {
         [JsonProperty("prompt_tokens")]
         public int PromptTokens { get; set;}
 
-        [JsonProperty("completions_tokens")]
+        [JsonProperty("completion_tokens")]
         public int CompletionsTokens { get; set; }
 
         [JsonProperty("total_tokens")]
@@ -51,7 +54,7 @@ namespace ETL.Models {
         public List<ChoicesDto> Choices { get; set; }
 
         [JsonProperty("usage")]
-        public List<ModelUsageDto> Usage { get; set; }
+        public ModelUsageDto Usage { get; set; }
     }
 
 }
